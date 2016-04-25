@@ -1,0 +1,36 @@
+object PageViewStream {
+  def main(args: Array[String]) {
+    if (args.length != 3) {
+      System.err.println("Usage: PageViewStream <metric> <host> <port>")
+      System.err.println("<metric> must be one of pageCounts")
+                       
+      System.exit(1)
+    }
+    StreamingExamples.setStreamingLogLevels()
+    val metric = args(0)
+    val host = args(1)
+    val port = args(2).toInt
+
+    // Create the context
+    val ssc = new StreamingContext("local[2]", "PageViewStream", Seconds(1),
+      System.getenv("SPARK_HOME"), StreamingContext.jarOfClass(this.getClass).toSeq)
+
+    // Create a ReceiverInputDStream on target host:port and convert each line to a PageView
+    val pageViews = ssc.socketTextStream(host, port)
+                       .flatMap(_.split("\n"))
+                       .map(PageView.fromString(_))
+
+    // Return a count of views per URL seen in each batch
+    val pageCounts = pageViews.map(view => view.url).countByValue()
+
+    // Return a sliding window of page views per URL in the last ten seconds
+    val slidingPageCounts = pageViews.map(view => view.url)
+                                     .countByValueAndWindow(Seconds(10), Seconds(2))
+
+    // Return the number unique users in last 15 seconds
+	
+    val activeUserCount = pageViews.window(Seconds(15), Seconds(2))
+                                   .map(view => (view.userID, 1))
+                                   .groupByKey()
+                                   .count()
+                                   .map("Unique active users: " + _)
